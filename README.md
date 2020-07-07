@@ -1,6 +1,8 @@
-An attempt to create a local instalation without :
+An attempt to create a local instalation without:
+
 https (lets encrypt)
 nginx
+docker volumes
 email functionality
 ..
 
