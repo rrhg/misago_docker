@@ -1,3 +1,11 @@
+An attempt to create a local instalation without :
+https (lets encrypt)
+nginx
+email functionality
+..
+
+Just barebones for testing
+
 Misago Docker
 =============
 
