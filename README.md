@@ -4,6 +4,7 @@ https (lets encrypt)
 nginx
 docker volumes
 email functionality
+cronjobs (set_crontab function in appctl setup)
 ..
 
 Just barebones for testing

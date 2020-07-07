@@ -1,39 +1,43 @@
+#
+# Eliminate production necesary stuff 
+# for a more lightweight local installation for testing
+
 version: '3.0'
 services:
 
-  nginx-proxy:
-    build: nginx-proxy
-    restart: always
-    networks:
-      - misago
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      - ENABLE_IPV6=true
-    labels:
-      com.github.jrcs.letsencrypt_nginx_proxy_companion.nginx_proxy: "true"
-    volumes:
-      - nginx-certs:/etc/nginx/certs
-      - nginx-html:/usr/share/nginx/html
-      - /var/run/docker.sock:/tmp/docker.sock:ro
-      - ./misago/media:/misago/media:z
-      - ./misago/static:/misago/static:z
-      - ./config/vhost.d:/etc/nginx/vhost.d:z
-      - ./logs/nginx:/var/log/nginx:z
+  # nginx-proxy:
+    # build: nginx-proxy
+    # restart: always
+    # networks:
+      # - misago
+    # ports:
+      # - "80:80"
+      # - "443:443"
+    # environment:
+      # - ENABLE_IPV6=true
+    # labels:
+      # com.github.jrcs.letsencrypt_nginx_proxy_companion.nginx_proxy: "true"
+    # volumes:
+      # - nginx-certs:/etc/nginx/certs
+      # - nginx-html:/usr/share/nginx/html
+      # - /var/run/docker.sock:/tmp/docker.sock:ro
+      # - ./misago/media:/misago/media:z
+      # - ./misago/static:/misago/static:z
+      # - ./config/vhost.d:/etc/nginx/vhost.d:z
+      # - ./logs/nginx:/var/log/nginx:z
 
-  nginx-lets-encrypt:
-    image: jrcs/letsencrypt-nginx-proxy-companion
-    restart: always
-    networks:
-      - misago
-    depends_on:
-      - nginx-proxy
-    volumes:
-      - nginx-certs:/etc/nginx/certs
-      - nginx-html:/usr/share/nginx/html
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./config/vhost.d:/etc/nginx/vhost.d:z
+  # nginx-lets-encrypt:
+    # image: jrcs/letsencrypt-nginx-proxy-companion
+    # restart: always
+    # networks:
+      # - misago
+    # depends_on:
+      # - nginx-proxy
+    # volumes:
+      # - nginx-certs:/etc/nginx/certs
+      # - nginx-html:/usr/share/nginx/html
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+      # - ./config/vhost.d:/etc/nginx/vhost.d:z
 
   postgres:
     image: postgres:10
@@ -42,19 +46,22 @@ services:
       - misago
     env_file:
       - ./config/postgres.env
-    volumes:
-      - misago-database:/var/lib/postgresql/data
+    # volumes:
+      # - misago-database:/var/lib/postgresql/data
 
   redis:
     image: redis:5
     restart: unless-stopped
     networks:
       - misago
-    volumes:
-      - misago-redis:/data
+    # volumes:
+      # - misago-redis:/data
 
   misago:
-    build: misago
+    # build: misago
+    build:
+      context: misago
+      dockerfile: Dockerfile_local
     restart: unless-stopped
     networks:
       misago:
@@ -68,16 +75,16 @@ services:
       - ./config/misago.env
       - ./config/postgres.env
     depends_on:
-      - nginx-lets-encrypt
+      # - nginx-lets-encrypt
       - postgres
       - redis
-    volumes:
-      - ./misago/media:/misago/media:z
-      - ./misago/static:/misago/static:z
-      - ./misago/avatargallery:/misago/avatargallery:ro
-      - ./misago/theme:/misago/theme:ro
-      - ./backups:/misago/backups:Z
-      - ./logs:/misago/logs:z
+    # volumes:
+      # - ./misago/media:/misago/media:z
+      # - ./misago/static:/misago/static:z
+      # - ./misago/avatargallery:/misago/avatargallery:ro
+      # - ./misago/theme:/misago/theme:ro
+      # - ./backups:/misago/backups:Z
+      # - ./logs:/misago/logs:z
 
   misago-celery:
     build: misago
@@ -95,17 +102,17 @@ services:
     depends_on:
       - postgres
       - redis
-    volumes:
-      - ./misago/media:/misago/media:z
-      - ./misago/static:/misago/static:z
-      - ./misago/theme:/misago/theme:ro
-      - ./logs:/misago/logs:z
+    # volumes:
+      # - ./misago/media:/misago/media:z
+      # - ./misago/static:/misago/static:z
+      # - ./misago/theme:/misago/theme:ro
+      # - ./logs:/misago/logs:z
 
 networks:
   misago:
 
-volumes:
-  nginx-certs:
-  nginx-html:
-  misago-database:
-  misago-redis:
+# volumes:
+  # nginx-certs:
+  # nginx-html:
+  # misago-database:
+  # misago-redis:

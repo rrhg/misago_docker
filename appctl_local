@@ -1,0 +1,484 @@
+#!/bin/bash
+# appctl is an utility script for managing your Misago deployment.
+# To find out what options are available, run it without any arguments.
+
+# Text styles
+RED='\033[0;31m'
+BOLD=$(tput bold)
+NORMAL=$(tput sgr0)
+
+# Define env paths
+# Those are paths to env files created by wizard
+misago_env_path="./config/misago.env"
+env_paths=(
+    $misago_env_path
+    "./config/postgres.env"
+)
+
+# Find docker compose path
+docker_compose=$(which docker-compose)
+
+# Utility functions used by action commands
+error() {
+    echo -e "${RED}Error:${NORMAL} $1"
+}
+
+require_setup() {
+    for env_path in "${env_paths[@]}"; do
+        if [ ! -e $env_path ]; then
+            error "You need to setup your site using \"./appctl setup\" before you will be able to use this option."
+            echo
+            exit 1
+        fi
+    done
+}
+
+# Check if user has docker and docker-compose
+if ! command -v docker >/dev/null 2>&1; then
+    error "You need to have Docker installed to use this tool."
+    echo
+    echo "Docker release for your system can be downloaded for free from this page:"
+    echo "https://www.docker.com/get-started"
+    echo
+    echo "If you are on Linux, you will also have to install Docker Compose after installing Docker:"
+    echo "https://docs.docker.com/compose/install/"
+    echo
+    exit 1
+elif ! command -v $docker_compose >/dev/null 2>&1; then
+    error "You need to have Docker Compose installed to use this tool."
+    echo
+    echo "Guide for installing Docker Compose on your system can be found on this page:"
+    echo "https://docs.docker.com/compose/install/"
+    echo
+    exit 1
+fi
+
+# Commands
+intro() {
+    echo "Usage: ./appctl [arg] ..."
+    echo "Arguments grouped by type:"
+    echo
+    echo "Setup and upgrade:"
+    echo
+    echo "    ${BOLD}setup${NORMAL}             setup new Misago site."
+    echo "    ${BOLD}upgrade${NORMAL}           backup, rebuild, migrate and collect static."
+    echo
+    echo "Docker management:"
+    echo
+    echo "    ${BOLD}start${NORMAL}             start all containers."
+    echo "    ${BOLD}stop${NORMAL}              stop all containers."
+    echo "    ${BOLD}restart${NORMAL}           stop and start all docker containers."
+    echo "    ${BOLD}rebuild${NORMAL}           rebuild and restart Misago and celery container containers."
+    echo "    ${BOLD}rebuildall${NORMAL}        pull, rebuild and restart all containers."
+    echo "    ${BOLD}stats${NORMAL}             see list and stats of running docker containers."
+    echo
+    echo "Change configuration:"
+    echo
+    echo "    ${BOLD}forumindex${NORMAL}        switch forum index between threads and categories."
+    echo "    ${BOLD}email${NORMAL}             change email setup."
+    echo "    ${BOLD}hostname${NORMAL}          change hostname setup."
+    echo "    ${BOLD}locale${NORMAL}            change locale setup."
+    echo "    ${BOLD}timezone${NORMAL}          change timezone setup."
+    echo "    ${BOLD}avatargallery${NORMAL}     load avatar gallery."
+    echo "    ${BOLD}sentry${NORMAL}            enable or disable Sentry (sentry.io) for logging."
+    echo "    ${BOLD}debug${NORMAL}             change debug mode."
+    echo "    ${BOLD}secret${NORMAL}            reset secret key."
+    echo
+    echo "    Note: you need to rebuild Misago container for changes made with those utils to take effect."
+    echo
+    echo "Backup:"
+    echo
+    echo "    ${BOLD}backup${NORMAL}            backup and archive database and media."
+    echo "    ${BOLD}restore BACKUP${NORMAL}    restore database and media from BACKUP archive."
+    echo
+    echo "Utilities:"
+    echo
+    echo "    ${BOLD}collectstatic${NORMAL}     collect static assets."
+    echo "    ${BOLD}manage.py${NORMAL}         runs \"python manage.py\" inside docker."
+    echo "    ${BOLD}bash${NORMAL}              starts bash session inside running Misago container."
+    echo "    ${BOLD}run${NORMAL}               runs \"docker-compose run --rm misago\"."
+    echo "    ${BOLD}psql${NORMAL}              runs psql connected to database."
+    echo "    ${BOLD}flushredis${NORMAL}        flush the redis cache."
+    echo
+}
+
+# Handle invalid argument
+invalid_argument() {
+    echo -e "Invalid argument: ${RED}$1${NORMAL}"
+    echo "Please run this script without any arguments to see the list of available arguments."
+    echo
+    exit 1
+}
+
+# Run new site setup
+setup() {
+    # Test if env files already exist
+    for env_path in "${env_paths[@]}"; do
+        if [ -e $env_path ]; then
+            error "Setup appears to already been completed."
+            echo
+            exit 1
+        fi
+    done
+    # Run wizard to let user create env files
+    python3 wizard/setup.py
+    # Recheck if user completed setup
+    for env_path in "${env_paths[@]}"; do
+        if [ ! -e $env_path ]; then
+            echo "Setup canceled."
+            echo
+            exit 1
+        fi
+    done
+    read -p "Initialize default database? [Y/n]: " initialize_default_database
+    # Run docker build
+    docker-compose build --no-cache --force-rm --pull
+    collectstatic
+    if [ "$initialize_default_database" != "n" ]; then
+        docker-compose run --rm misago ./.run initialize_default_database
+    fi
+    
+    start_containers
+    
+    # not used in local development
+    # set_crontab
+
+    echo "Setup completed."
+    if [ "$initialize_default_database" != "n" ]; then
+        echo "If you have already pointed a domain at this server, you can now visit it to access your Misago site."
+        echo "Please note that it may take up to few minutes for HTTPS to activate."
+    else
+        echo "Database was not initialized. Restore from backup or load custom db dump to psql and use \"./appctl start\" to start Misago server."
+    fi
+}
+
+# Run collectstatic (uses misago-static volume) so site has loaded assets
+collectstatic() {
+    docker-compose run --rm misago python manage.py collectstatic --no-input
+}
+
+# Setup crontab to run `cron` script within Misago container using docker-compose
+set_crontab() {
+    current_path=$(pwd)
+    rm -f cron_tmp
+    touch cron_tmp
+    echo "30 1 * * * cd $current_path && $docker_compose run --rm misago ./cron" >> cron_tmp
+    echo "0 1 * * * cd $current_path && ./appctl daily_backup" >> cron_tmp
+    echo "0 1 * * * find $current_path/backups/ -name auto-* -type f -mtime +10 -delete" >> cron_tmp
+    echo "" >> cron_tmp
+    crontab cron_tmp
+    rm -f cron_tmp
+}
+
+# Run upgrade process
+upgrade() {
+    require_setup
+
+    git_commit=$(git rev-parse HEAD)
+    git_commit=${git_commit:0:8}
+
+    echo "You are going to upgrade your Misago site to the new version."
+    echo "All running docker containers will be stopped for the duration of the upgrade."
+    echo "Your site's data will be backed up to the \"backups\" directory."
+    echo "New version of misago-docker will be pulled from github.com"
+    echo
+    echo "In case of any issues, run this command to return to the current version:"
+    echo
+    echo "git reset --hard $git_commit && docker-compose build --no-cache --force-rm --pull"
+    echo
+    echo "Note: remember to also restore your backup in case you are rolling back!"
+    echo
+
+    read -p "Start upgrade process? [Y/n]: " start_upgrade
+    if [ "$start_upgrade" = "n" ]; then
+        echo "Upgrade canceled."
+        exit
+    fi
+
+    echo "Creating backup..."
+    create_new_backup "upgrade"
+    echo "Stopping containers for upgrade..."
+    docker-compose stop
+    git pull
+    docker-compose build --no-cache --force-rm --pull
+    collectstatic
+    docker-compose run --rm misago python manage.py migrate
+    docker-compose run --rm misago python manage.py invalidateversionedcaches
+    echo "Upgrade has been completed, restarting containers..."
+    start_containers
+    set_crontab
+}
+
+# Start docker containers
+start_containers() {
+    require_setup
+    docker-compose up --detach
+}
+
+# Stop docker containers
+stop_containers() {
+    require_setup
+    docker-compose stop
+}
+
+# Restart docker containers
+restart_containers() {
+    require_setup
+    docker-compose stop
+    docker-compose up --detach
+}
+
+# Rebuild misago containers
+rebuild_misago_containers() {
+    require_setup
+    docker-compose stop misago misago-celery
+    docker-compose build --force-rm misago misago-celery
+    docker-compose up --detach
+}
+
+# Rebuild all containers
+rebuild_all_containers() {
+    require_setup
+    docker-compose stop
+    docker-compose build --force-rm --no-cache --pull
+    docker-compose up --detach
+}
+
+# Show stats for running docker containers
+show_stats() {
+    require_setup
+    docker stats
+}
+
+# Flush the redis cache
+flush_redis() {
+    require_setup
+    echo "You are about to flush all values from the Redis cache."
+    echo "This will:"
+    echo "  - Remove all cached information"
+    echo "  - Close all user sessions (log all users out)"
+    echo
+
+    read -p "Flush Redis cache? [Y/n]: " should_flush_cache
+    if [ "$should_flush_cache" = "n" ]; then
+        echo "Cache flush canceled."
+        exit
+    fi
+    docker-compose exec redis redis-cli FLUSHALL
+}
+
+# Forum index configuration
+change_forumindex() {
+    require_setup
+    python3 wizard/forumindex.py
+}
+
+# E-mail configuration
+change_email() {
+    require_setup
+    python3 wizard/email.py
+}
+
+# Hostname configuration
+change_hostname() {
+    require_setup
+    python3 wizard/hostname.py
+}
+
+# Locale configuration
+change_locale() {
+    require_setup
+    python3 wizard/locale.py
+}
+
+# Timezone configuration
+change_timezone() {
+    require_setup
+    python3 wizard/timezone.py
+}
+
+# Load avatar gallery
+load_avatargallery() {
+    require_setup
+    docker-compose run --rm misago python manage.py loadavatargallery
+}
+
+# Sentry configuration
+change_sentry() {
+    require_setup
+    python3 wizard/sentry.py
+}
+
+# Debug configuration
+change_debug() {
+    require_setup
+    python3 wizard/debug.py
+}
+
+# Reset secret key
+reset_secret_key() {
+    require_setup
+    python3 wizard/secretkey.py
+}
+
+# Create new backup
+create_new_backup() {
+    require_setup
+    if [[ $1 ]]; then
+        backup_type="$1"
+    else
+        backup_type="manual"
+    fi
+    # create tmp backup dir
+    backup_dir="$backup_type-$(date +%Y%m%d%H%M%S)"
+    mkdir "./backups/$backup_dir"
+    # backup database
+    echo "Backing up database..."
+    $docker_compose run --rm misago ./.run backup_db $backup_dir
+    # backup media
+    echo "Backing up media..."
+    cp -r ./misago/media "./backups/$backup_dir/media"
+    cd ./backups/
+    # archive backup dir
+    backup_archive="$backup_type-$(date +%Y%m%d%H%M%S).tar.gz"
+    GZIP=-9
+    tar -zcf $backup_archive "$backup_dir"
+    # delete backup dir as its no longer required
+    rm -rf $backup_dir
+    cd ..
+    echo "New backup has been created at backups/$backup_archive"
+    echo
+}
+
+# Restore from backup
+restore_from_backup() {
+    require_setup
+    if [[ ! $1 ]]; then
+        error "You need to specify backup archive to restore from."
+    fi
+    # Check if backup archive exists
+    backups_dir="./backups"
+    if [ ! -e "$backups_dir/$1" ]; then
+        error "Path backups/$1 doesn't exist."
+    fi
+    # Unarchive specified file to tmp directory
+    echo "Restoring from $1..."
+    tmp_dir="$backups_dir/tmp-$(date +%Y%m%d%H%M%S)"
+    mkdir $tmp_dir
+    tar -xzf "$backups_dir/$1" -C $tmp_dir
+    # Find media and database backups in unarchived directory
+    database_sql=false
+    media_dir=false
+    for backup_dir in "$tmp_dir/*"; do
+        if [ -d $backup_dir ]; then
+            database_sql="$(echo $backup_dir/database.sql)"
+            media_dir="$(echo $backup_dir/media)"
+        fi
+    done
+    if [ ! -e $database_sql ]; then
+        rm -rf $tmp_dir
+        error "Specified archive is missing database backup."
+    fi
+    if [ ! -d $media_dir ]; then
+        rm -rf $tmp_dir
+        error "Specified archive is missing media backup."
+    fi
+    # Restore from archive
+    docker-compose run --rm misago ./.run psql < $database_sql
+    rm -rf ./misago/media/*
+    mv "$media_dir"/* ./misago/media/
+    # Cleanup...
+    rm -rf $tmp_dir
+    echo "Restore completed! Remember to run \"./appctl rebuild\" to rebuild and restart your site!"
+    echo
+}
+
+# Collect static files
+run_collectstatic() {
+    require_setup
+    collectstatic
+}
+
+# Shortcut for starting bash session in running container
+run_bash() {
+    docker-compose exec misago bash
+}
+
+# Shortcut for docker-compose run --rm misago python manage.py
+run_managepy() {
+    docker-compose run --rm misago python manage.py "${@:2}"
+}
+
+# Shortcut for docker-compose run --rm misago...
+docker_run() {
+    docker-compose run --rm misago "${@:2}"
+}
+
+# Shortcut for psql
+run_psql() {
+    require_setup
+    docker-compose run --rm misago ./.run psql
+}
+
+# Command dispatcher
+if [[ $1 ]]; then
+    if [[ $1 = "setup" ]]; then
+        setup
+    elif [[ $1 = "upgrade" ]]; then
+        upgrade
+    elif [[ $1 = "up" ]]; then
+        start_containers
+    elif [[ $1 = "start" ]]; then
+        start_containers
+    elif [[ $1 = "stop" ]]; then
+        stop_containers
+    elif [[ $1 = "restart" ]]; then
+        restart_containers
+    elif [[ $1 = "rebuild" ]]; then
+        rebuild_misago_containers
+    elif [[ $1 = "rebuildall" ]]; then
+        rebuild_all_containers
+    elif [[ $1 = "stats" ]]; then
+        show_stats
+    elif [[ $1 = "flushredis" ]]; then
+        flush_redis
+    elif [[ $1 = "forumindex" ]]; then
+        change_forumindex
+    elif [[ $1 = "email" ]]; then
+        change_email
+    elif [[ $1 = "hostname" ]]; then
+        change_hostname
+    elif [[ $1 = "locale" ]]; then
+        change_locale
+    elif [[ $1 = "timezone" ]]; then
+        change_timezone
+    elif [[ $1 = "avatargallery" ]]; then
+        load_avatargallery
+    elif [[ $1 = "sentry" ]]; then
+        change_sentry
+    elif [[ $1 = "debug" ]]; then
+        change_debug
+    elif [[ $1 = "secret" ]]; then
+        reset_secret_key
+    elif [[ $1 = "backup" ]]; then
+        create_new_backup
+    elif [[ $1 = "restore" ]]; then
+        restore_from_backup $2
+    elif [[ $1 = "daily_backup" ]]; then
+        create_new_backup "auto"
+    elif [[ $1 = "collectstatic" ]]; then
+        run_collectstatic
+    elif [[ $1 = "manage.py" ]]; then
+        run_managepy $@
+    elif [[ $1 = "bash" ]]; then
+        run_bash
+    elif [[ $1 = "run" ]]; then
+        docker_run $@
+    elif [[ $1 = "psql" ]]; then
+        run_psql
+    else
+        invalid_argument $1
+    fi
+else
+    intro
+fi
