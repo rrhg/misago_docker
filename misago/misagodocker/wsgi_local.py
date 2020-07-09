@@ -12,6 +12,8 @@ import os
 from django.core.wsgi import get_wsgi_application
 
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "misagodocker.settings_local")
+# os.environ.setdefault("DJANGO_SETTINGS_MODULE", "misagodocker.settings_local")
 
 application = get_wsgi_application()
+
+print('*****  test for logs: . Printed from misago/misagodocker/wsgi_local.py ***************')

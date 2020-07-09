@@ -46,16 +46,16 @@ services:
       - misago
     env_file:
       - ./config/postgres.env
-    # volumes:
-      # - misago-database:/var/lib/postgresql/data
+    volumes:
+      - misago-database:/var/lib/postgresql/data
 
   redis:
     image: redis:5
     restart: unless-stopped
     networks:
       - misago
-    # volumes:
-      # - misago-redis:/data
+    volumes:
+      - misago-redis:/data
 
   misago:
     # build: misago
@@ -74,17 +74,19 @@ services:
     env_file:
       - ./config/misago.env
       - ./config/postgres.env
+    ports:
+      - "3031:3031"
     depends_on:
       # - nginx-lets-encrypt
       - postgres
       - redis
-    # volumes:
-      # - ./misago/media:/misago/media:z
-      # - ./misago/static:/misago/static:z
-      # - ./misago/avatargallery:/misago/avatargallery:ro
-      # - ./misago/theme:/misago/theme:ro
-      # - ./backups:/misago/backups:Z
-      # - ./logs:/misago/logs:z
+    volumes:
+      - ./misago/media:/misago/media:z
+      - ./misago/static:/misago/static:z
+      - ./misago/avatargallery:/misago/avatargallery:ro
+      - ./misago/theme:/misago/theme:ro
+      - ./backups:/misago/backups:Z
+      - ./logs:/misago/logs:z
 
   misago-celery:
     build: misago
@@ -102,17 +104,20 @@ services:
     depends_on:
       - postgres
       - redis
-    # volumes:
-      # - ./misago/media:/misago/media:z
-      # - ./misago/static:/misago/static:z
-      # - ./misago/theme:/misago/theme:ro
-      # - ./logs:/misago/logs:z
+    volumes:
+      - ./misago/media:/misago/media:z
+      - ./misago/static:/misago/static:z
+      - ./misago/theme:/misago/theme:ro
+      - ./logs:/misago/logs:z
 
 networks:
   misago:
-
-# volumes:
-  # nginx-certs:
-  # nginx-html:
-  # misago-database:
-  # misago-redis:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.57.0/24  
+volumes:
+  nginx-certs:
+  nginx-html:
+  misago-database:
+  misago-redis:
