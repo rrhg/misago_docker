@@ -34,7 +34,12 @@ importlib-metadata==1.6.0  # via kombu, misago, pluggy, pytest
 itsdangerous==1.1.0       # via django-simple-sso, misago, webservices
 kombu==4.6.8              # via celery, misago
 markdown==2.6.11          # via misago
-misago==0.27.0            # via -r requirements.in
+
+git+https://github.com/rrhg/mte.git#egg=misago
+#misago==0.27.0            # via -r requirements.in
+# https://stackoverflow.com/questions/16584552/how-to-state-in-requirements-txt-a-direct-github-source
+# https://pip.pypa.io/en/stable/reference/pip_install/#git
+
 more-itertools==8.3.0     # via misago, pytest
 oauthlib==3.1.0           # via misago, requests-oauthlib, social-auth-core
 packaging==20.4           # via bleach, misago, pytest
