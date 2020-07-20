@@ -132,14 +132,17 @@ setup() {
     done
     read -p "Initialize default database? [Y/n]: " initialize_default_database
     
-    read -p "Use https in nginx ? [Y/n]: " use_https_in_nginx
-    
 
+    #       
+    read -p "Use https in nginx ? [Y/n]: " use_https_in_nginx    
     if [ "$use_https_in_nginx" != "n" ];then
         docker_compose_file="docker-compose.yaml"    
     else
         docker_compose_file="docker-compose-no-https.yaml"
     fi
+    # **   for now will use no-https for all ** 
+    docker_compose_file="docker-compose-no-https.yaml"
+
 
     # Run docker build
     docker-compose -f "$docker_compose_file" build --no-cache --force-rm --pull

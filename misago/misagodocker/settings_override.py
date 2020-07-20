@@ -1,6 +1,8 @@
 
+# when not using https
 CSRF_COOKIE_SECURE = False
 
+SESSION_COOKIE_SECURE = False
 
 
 #SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
